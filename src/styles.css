@@ -1,0 +1,13 @@
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  color: #111;
+  background: #f5f7fb;
+}
+
+body {
+  margin: 0;
+}
+
+button {
+  cursor: pointer;
+}
