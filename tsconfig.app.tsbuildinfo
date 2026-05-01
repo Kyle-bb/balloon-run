@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/main.tsx","./src/components/AppRoutes.tsx","./src/game/scenes/BalloonRun/index.ts","./src/game/scenes/BalloonRun/__tests__/BalloonRunScene.test.ts","./src/pages/BalloonRun.tsx"],"errors":true,"version":"5.9.3"}
