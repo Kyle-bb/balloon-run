@@ -1,10 +1,18 @@
 export type Vec2 = { x: number; y: number };
 
+export type BalloonType = {
+  layers: number; // 1-3 layers
+  speed: number;
+  color: number; // Phaser color
+  points: number;
+};
+
 export type Enemy = {
   id: number;
   x: number;
   y: number;
-  hp: number;
+  type: BalloonType;
+  currentLayer: number; // decreases on hit
   speed: number;
 };
 
@@ -16,30 +24,38 @@ export type Projectile = {
   vy: number;
   damage: number;
   ttl: number;
+  piercing?: boolean;
+  explosive?: boolean;
 };
 
 export type OffensiveStats = {
   projectileDamage: number;
   fireRateMs: number;
   projectileSpeed: number;
+  multiShot: number; // 1, 2, or 3
+  extraShooters: number; // 0, 1, or 2 (left/right)
+  piercing: boolean;
+  explosive: boolean;
+};
+
+export type Upgrade = {
+  id: string;
+  name: string;
+  description: string;
+  apply: (stats: OffensiveStats) => OffensiveStats;
 };
 
 export type GameState = {
   player: Vec2 & { hp: number; maxHp: number; speed: number };
   score: number;
-  progression: number;
-  level: number;
-  nextThreshold: number;
+  currentStage: number;
+  balloonsRemaining: number;
+  isStageComplete: boolean;
   isGameOver: boolean;
-  pendingGate: null | {
-    threshold: number;
-    choices: Array<{ id: string; label: string; description: string; apply: (state: GameState) => GameState }>;
-  };
+  pendingUpgrades: Upgrade[] | null;
   enemies: Enemy[];
   projectiles: Projectile[];
   input: {
-    up: boolean;
-    down: boolean;
     left: boolean;
     right: boolean;
     firing: boolean;
@@ -59,25 +75,32 @@ export type GameState = {
   };
 };
 
-const INITIAL_THRESHOLD = 100;
+const WORLD_W = 800;
+const WORLD_H = 600;
+
+export const BALLOON_TYPES: BalloonType[] = [
+  { layers: 1, speed: 50, color: 0xff0000, points: 10 }, // Red
+  { layers: 2, speed: 40, color: 0x00ff00, points: 20 }, // Green
+  { layers: 3, speed: 30, color: 0x0000ff, points: 30 }, // Blue
+  { layers: 1, speed: 80, color: 0xffff00, points: 15 }, // Yellow fast
+  { layers: 4, speed: 25, color: 0xff00ff, points: 50 }, // Magenta tough
+];
 
 export function createInitialState(): GameState {
   return {
-    player: { x: 200, y: 200, hp: 100, maxHp: 100, speed: 180 },
+    player: { x: WORLD_W / 2, y: WORLD_H - 80, hp: 150, maxHp: 150, speed: 250 }, // Moved up from 570 to 520
     score: 0,
-    progression: 0,
-    level: 1,
-    nextThreshold: INITIAL_THRESHOLD,
+    currentStage: 1,
+    balloonsRemaining: 10,
+    isStageComplete: false,
     isGameOver: false,
-    pendingGate: null,
+    pendingUpgrades: null,
     enemies: [],
     projectiles: [],
     input: {
-      up: false,
-      down: false,
       left: false,
       right: false,
-      firing: false,
+      firing: true,
       touchDirection: { x: 0, y: 0 },
     },
     timers: { enemySpawnMs: 0, fireCooldownMs: 0 },
@@ -86,98 +109,111 @@ export function createInitialState(): GameState {
   };
 }
 
-export function createGateChoices(): GameState['pendingGate']['choices'] {
-  return [
+export function getBaseOffense(): OffensiveStats {
+  return {
+    projectileDamage: 1,
+    fireRateMs: 400, // Improved from 500ms (2.5 shots/sec vs 2 shots/sec)
+    projectileSpeed: 350, // Slightly faster projectiles
+    multiShot: 1,
+    extraShooters: 0,
+    piercing: false,
+    explosive: false,
+  };
+}
+
+export function getStageBalloons(stage: number): number {
+  return Math.min(8, 4 + stage); // Stage 1: 5, Stage 2: 6, Stage 3: 7, Stage 4+: 8
+}
+
+export function getStageBalloonTypes(stage: number): BalloonType[] {
+  const types = BALLOON_TYPES.slice(0, Math.min(stage, BALLOON_TYPES.length));
+  return types;
+}
+
+export function spawnBalloon(stage: number): Enemy {
+  const types = getStageBalloonTypes(stage);
+  const type = types[Math.floor(Math.random() * types.length)];
+  return {
+    id: 0, // Set later
+    x: Math.random() * WORLD_W,
+    y: 60, // Spawn lower to reduce empty space (was 0)
+    type,
+    currentLayer: type.layers,
+    speed: type.speed + (stage - 1) * 3, // More gradual speed increase: +3 per stage instead of +5
+  };
+}
+
+export function createUpgrades(): Upgrade[] {
+  const allUpgrades = [
     {
       id: 'damage',
-      label: 'Power Up',
-      description: '+2 projectile damage',
-      apply: (s) => ({ ...s, player: { ...s.player }, level: s.level + 1, score: s.score + 10 }),
+      name: 'Stronger Shots',
+      description: '+2 damage', // More impactful: +2 instead of +1
+      apply: (s) => ({ ...s, projectileDamage: s.projectileDamage + 2 }),
     },
     {
       id: 'rate',
-      label: 'Rapid Fire',
-      description: '-50ms fire cooldown',
-      apply: (s) => ({ ...s, player: { ...s.player }, level: s.level + 1, score: s.score + 10 }),
+      name: 'Faster Fire',
+      description: '-150ms fire rate', // More impactful: -150ms instead of -100ms
+      apply: (s) => ({ ...s, fireRateMs: Math.max(100, s.fireRateMs - 150) }),
     },
     {
-      id: 'speed',
-      label: 'Swift Shots',
-      description: '+80 projectile speed',
-      apply: (s) => ({ ...s, player: { ...s.player }, level: s.level + 1, score: s.score + 10 }),
+      id: 'multishot',
+      name: 'Multi Shot',
+      description: '+1 projectile per shot',
+      apply: (s) => ({ ...s, multiShot: Math.min(3, s.multiShot + 1) }),
+    },
+    {
+      id: 'extra_shooter',
+      name: 'Extra Shooter',
+      description: 'Add side shooter',
+      apply: (s) => ({ ...s, extraShooters: Math.min(2, s.extraShooters + 1) }),
+    },
+    {
+      id: 'piercing',
+      name: 'Piercing Shots',
+      description: 'Projectiles pierce balloons',
+      apply: (s) => ({ ...s, piercing: true }),
+    },
+    {
+      id: 'explosive',
+      name: 'Explosive Shots',
+      description: 'Splash damage',
+      apply: (s) => ({ ...s, explosive: true }),
+    },
+    {
+      id: 'health',
+      name: 'Extra Health',
+      description: '+20 max HP',
+      apply: (s) => s, // Health handled separately in scene
     },
   ];
+
+  // Shuffle and return 3 random upgrades
+  const shuffled = [...allUpgrades].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, 3);
 }
 
-export function getBaseOffense(level: number): OffensiveStats {
+export function applyUpgrade(stats: OffensiveStats, upgradeId: string): OffensiveStats {
+  const upgrade = createUpgrades().find(u => u.id === upgradeId);
+  return upgrade ? upgrade.apply(stats) : stats;
+}
+
+export function startNextStage(state: GameState): GameState {
+  const nextStage = state.currentStage + 1;
   return {
-    projectileDamage: 8 + level,
-    fireRateMs: Math.max(180, 550 - level * 20),
-    projectileSpeed: 260 + level * 15,
+    ...state,
+    currentStage: nextStage,
+    balloonsRemaining: getStageBalloons(nextStage),
+    isStageComplete: false,
+    pendingUpgrades: null,
+    enemies: [],
+    projectiles: [],
+    timers: { enemySpawnMs: 0, fireCooldownMs: 0 },
   };
 }
 
-export function applyThresholdUpgrade(stats: OffensiveStats, choiceId: string): OffensiveStats {
-  if (choiceId === 'damage') {
-    return { ...stats, projectileDamage: stats.projectileDamage + 2 };
-  }
-  if (choiceId === 'rate') {
-    return { ...stats, fireRateMs: Math.max(120, stats.fireRateMs - 50) };
-  }
-  if (choiceId === 'speed') {
-    return { ...stats, projectileSpeed: stats.projectileSpeed + 80 };
-  }
-  return stats;
-}
-
-export function hasOffenseImproved(before: OffensiveStats, after: OffensiveStats): boolean {
-  return (
-    after.projectileDamage > before.projectileDamage ||
-    after.projectileSpeed > before.projectileSpeed ||
-    after.fireRateMs < before.fireRateMs
-  );
-}
-
-export function queueProgress(state: GameState, points: number): GameState {
-  if (state.pendingGate || state.isGameOver) return state;
-
-  const progression = state.progression + points;
-  if (progression >= state.nextThreshold) {
-    return {
-      ...state,
-      progression,
-      pendingGate: {
-        threshold: state.nextThreshold,
-        choices: createGateChoices(),
-      },
-      events: {
-        audio: [...state.events.audio, 'gate_open'],
-        fx: [...state.events.fx, 'threshold_reached'],
-      },
-    };
-  }
-
-  return { ...state, progression };
-}
-
-export function applyGateChoice(state: GameState, choiceId: string): GameState {
-  if (!state.pendingGate) return state;
-  const choice = state.pendingGate.choices.find((c) => c.id === choiceId);
-  if (!choice) return state;
-
-  const advanced = choice.apply(state);
-  return {
-    ...advanced,
-    pendingGate: null,
-    nextThreshold: Math.round(state.nextThreshold * 1.5),
-    events: {
-      audio: [...state.events.audio, 'gate_choice_confirmed'],
-      fx: [...state.events.fx, `gate_choice_${choiceId}`],
-    },
-  };
-}
-
-export function restartRun(): GameState {
+export function restartGame(): GameState {
   return createInitialState();
 }
 
