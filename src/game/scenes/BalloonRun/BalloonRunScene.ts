@@ -14,6 +14,7 @@ import {
     collectPowerUp,
     PowerUp,
     Enemy,
+    getAllUpgrades,
 } from './index';
 import { SoundManager } from './sounds/SoundManager';
 import { ParticleManager } from './ParticleManager';
@@ -105,6 +106,7 @@ export class BalloonRunScene extends Phaser.Scene {
                 case 'game_over': this.soundManager.playGameOver(); break;
                 case 'stage_complete': this.soundManager.playStageComplete(); break;
                 case 'powerup': this.soundManager.playPowerUp(); break;
+                case 'error': this.soundManager.playError(); break;
             }
         });
 
@@ -154,8 +156,8 @@ export class BalloonRunScene extends Phaser.Scene {
 
         next.timers = { enemySpawnMs: next.timers.enemySpawnMs + dt * 1000, fireCooldownMs: next.timers.fireCooldownMs + dt * 1000 };
 
-        // Spawn balloons - faster spawns for early stages
-        const spawnRateMs = Math.max(400, 1200 - next.currentStage * 150); // Stage 1: 1050ms -> 800ms, Stage 2: 900ms, Stage 3: 750ms
+        // Spawn balloons - much faster spawns with difficulty scaling
+        const spawnRateMs = Math.max(250, 800 - next.currentStage * 80); // Stage 1: 720ms, Stage 2: 640ms, Stage 3: 560ms, etc
         if (next.timers.enemySpawnMs > spawnRateMs && next.balloonsRemaining > 0) {
             next.timers.enemySpawnMs = 0;
             const balloon = spawnBalloon(next.currentStage);
@@ -219,6 +221,7 @@ export class BalloonRunScene extends Phaser.Scene {
                     if (!p.piercing) p.ttl = 0; // Remove projectile unless piercing
                     if (e.currentLayer <= 0) {
                         next.score += e.type.points;
+                        next.money += e.type.points; // Earn money = points
                         next.events.audio.push('balloon_pop');
                         next.events.fx.push('explosion');
                     }
@@ -415,13 +418,29 @@ export class BalloonRunScene extends Phaser.Scene {
 
     public applyUpgrade(upgradeId: string) {
         if (!this.gameState.pendingUpgrades) return;
+        
+        // Get the upgrade and its cost
+        const upgrade = getAllUpgrades().find(u => u.id === upgradeId);
+        if (!upgrade) return;
+        
+        // Check if player has enough money
+        if (this.gameState.money < upgrade.cost) {
+            this.gameState.events.audio.push('error'); // Play error sound if not enough money
+            return;
+        }
+        
+        // Deduct cost and apply upgrade
+        this.gameState.money -= upgrade.cost;
         this.offense = applyUpgrade(this.offense, upgradeId);
         this.gameState = startNextStage(this.gameState);
+        
         // Handle health upgrade specially
         if (upgradeId === 'health') {
             this.gameState.player.maxHp += 20;
             this.gameState.player.hp += 20;
         }
+        
+        this.gameState.events.audio.push('upgrade');
         this.onOffenseChange?.(this.offense);
         this.onGameStateChange?.(this.gameState);
         this.lastNotifiedState = { ...this.gameState };

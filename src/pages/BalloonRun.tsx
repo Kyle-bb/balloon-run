@@ -95,6 +95,7 @@ export default function BalloonRunPage() {
       }}>
         <div>Stage: <span style={{ color: '#e74c3c' }}>{state.currentStage}</span></div>
         <div>Balloons: <span style={{ color: '#f39c12' }}>{state.balloonsRemaining}</span></div>
+        <div>Money: <span style={{ color: '#f1c40f' }}>💰 {state.money}</span></div>
         <div>Score: <span style={{ color: '#27ae60' }}>{state.score}</span></div>
         <div>Health: <span style={{ color: state.player.hp < state.player.maxHp * 0.3 ? '#e74c3c' : '#27ae60' }}>{state.player.hp}/{state.player.maxHp}</span></div>
         <div>Damage: <span style={{ color: '#9b59b6' }}>{offense.projectileDamage}</span></div>
@@ -175,29 +176,38 @@ export default function BalloonRunPage() {
               🎉 Stage {state.currentStage} Complete! 🎉
             </div>
             <div style={{ fontSize: '18px', marginBottom: '20px', textAlign: 'center' }}>
+              Your balance: 💰 {state.money}
+            </div>
+            <div style={{ fontSize: '16px', marginBottom: '20px', textAlign: 'center', fontStyle: 'italic' }}>
               Choose your upgrade:
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', justifyContent: 'center' }}>
-              {state.pendingUpgrades.map((upgrade) => (
-                <button
-                  key={upgrade.id}
-                  onClick={() => onUpgrade(upgrade.id)}
-                  style={{
-                    padding: '12px 16px',
-                    fontSize: '14px',
-                    background: '#f39c12',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    fontWeight: 'bold',
-                    minWidth: '120px'
-                  }}
-                >
-                  {upgrade.name}<br />
-                  <small>{upgrade.description}</small>
-                </button>
-              ))}
+              {state.pendingUpgrades.map((upgrade) => {
+                const canAfford = state.money >= upgrade.cost;
+                return (
+                  <button
+                    key={upgrade.id}
+                    onClick={() => onUpgrade(upgrade.id)}
+                    disabled={!canAfford}
+                    style={{
+                      padding: '12px 16px',
+                      fontSize: '14px',
+                      background: canAfford ? '#f39c12' : '#95a5a6',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: canAfford ? 'pointer' : 'not-allowed',
+                      fontWeight: 'bold',
+                      minWidth: '140px',
+                      opacity: canAfford ? 1 : 0.6
+                    }}
+                  >
+                    {upgrade.name}<br />
+                    <small>{upgrade.description}</small><br />
+                    <small style={{ fontWeight: 'normal' }}>Cost: 💰 {upgrade.cost}</small>
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}

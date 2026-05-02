@@ -77,4 +77,10 @@ export class SoundManager {
     setTimeout(() => this.playTone(1200, 0.1, 'sine', 0.1), 100);
     setTimeout(() => this.playTone(1400, 0.2, 'sine', 0.15), 200);
   }
+
+  playError() {
+    // Low, sad buzzer sound
+    this.playTone(200, 0.3, 'sawtooth', 0.2);
+    setTimeout(() => this.playTone(150, 0.3, 'sawtooth', 0.2), 150);
+  }
 }

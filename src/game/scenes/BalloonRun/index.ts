@@ -51,12 +51,14 @@ export type Upgrade = {
   id: string;
   name: string;
   description: string;
+  cost: number;
   apply: (stats: OffensiveStats) => OffensiveStats;
 };
 
 export type GameState = {
   player: Vec2 & { hp: number; maxHp: number; speed: number };
   score: number;
+  money: number;
   currentStage: number;
   balloonsRemaining: number;
   isStageComplete: boolean;
@@ -91,22 +93,23 @@ const WORLD_W = 800;
 const WORLD_H = 600;
 
 export const BALLOON_TYPES: BalloonType[] = [
-  { layers: 1, speed: 50, color: 0xff0000, points: 10 }, // Red
-  { layers: 2, speed: 40, color: 0x00ff00, points: 20 }, // Green
-  { layers: 3, speed: 30, color: 0x0000ff, points: 30 }, // Blue
-  { layers: 1, speed: 80, color: 0xffff00, points: 15 }, // Yellow fast
-  { layers: 4, speed: 25, color: 0xff00ff, points: 50 }, // Magenta tough
+  { layers: 1, speed: 50, color: 0xff0000, points: 15 }, // Red
+  { layers: 2, speed: 40, color: 0x00ff00, points: 30 }, // Green
+  { layers: 3, speed: 30, color: 0x0000ff, points: 50 }, // Blue
+  { layers: 1, speed: 80, color: 0xffff00, points: 25 }, // Yellow fast
+  { layers: 4, speed: 25, color: 0xff00ff, points: 75 }, // Magenta tough
   // New 2.0 types
-  { layers: 5, speed: 20, color: 0x8B4513, points: 100, special: 'boss' }, // Brown boss
-  { layers: 2, speed: 60, color: 0xFFA500, points: 25, special: 'fast' }, // Orange fast
-  { layers: 3, speed: 35, color: 0x800080, points: 40, special: 'armored' }, // Purple armored
-  { layers: 2, speed: 45, color: 0xFF1493, points: 35, special: 'explosive' }, // Pink explosive
+  { layers: 5, speed: 20, color: 0x8B4513, points: 150, special: 'boss' }, // Brown boss
+  { layers: 2, speed: 60, color: 0xFFA500, points: 40, special: 'fast' }, // Orange fast
+  { layers: 3, speed: 35, color: 0x800080, points: 60, special: 'armored' }, // Purple armored
+  { layers: 2, speed: 45, color: 0xFF1493, points: 50, special: 'explosive' }, // Pink explosive
 ];
 
 export function createInitialState(): GameState {
   return {
     player: { x: WORLD_W / 2, y: WORLD_H - 80, hp: 150, maxHp: 150, speed: 250 }, // Moved up from 570 to 520
     score: 0,
+    money: 50,
     currentStage: 1,
     balloonsRemaining: 10,
     isStageComplete: false,
@@ -140,7 +143,7 @@ export function getBaseOffense(): OffensiveStats {
 }
 
 export function getStageBalloons(stage: number): number {
-  return Math.min(8, 4 + stage); // Stage 1: 5, Stage 2: 6, Stage 3: 7, Stage 4+: 8
+  return 6 + stage * 2; // Stage 1: 8, Stage 2: 10, Stage 3: 12, etc - much longer stages
 }
 
 export function getStageBalloonTypes(stage: number): BalloonType[] {
@@ -157,7 +160,7 @@ export function spawnBalloon(stage: number): Enemy {
     y: 60, // Spawn lower to reduce empty space (was 0)
     type,
     currentLayer: type.layers,
-    speed: type.speed + (stage - 1) * 3, // More gradual speed increase: +3 per stage instead of +5
+    speed: type.speed + (stage - 1) * 5, // Faster scaling: +5 per stage instead of +3
   };
 }
 
@@ -205,59 +208,68 @@ export function collectPowerUp(state: GameState, powerUpId: number, offense: Off
   return { state: newState, offense: newOffense };
 }
 
-export function createUpgrades(): Upgrade[] {
-  const allUpgrades = [
+export function getAllUpgrades(): Upgrade[] {
+  return [
     {
       id: 'damage',
       name: 'Stronger Shots',
-      description: '+2 damage', // More impactful: +2 instead of +1
+      description: '+2 damage',
+      cost: 75,
       apply: (s) => ({ ...s, projectileDamage: s.projectileDamage + 2 }),
     },
     {
       id: 'rate',
       name: 'Faster Fire',
-      description: '-150ms fire rate', // More impactful: -150ms instead of -100ms
+      description: '-150ms fire rate',
+      cost: 100,
       apply: (s) => ({ ...s, fireRateMs: Math.max(100, s.fireRateMs - 150) }),
     },
     {
       id: 'multishot',
       name: 'Multi Shot',
       description: '+1 projectile per shot',
+      cost: 125,
       apply: (s) => ({ ...s, multiShot: Math.min(3, s.multiShot + 1) }),
     },
     {
       id: 'extra_shooter',
       name: 'Extra Shooter',
       description: 'Add side shooter',
+      cost: 150,
       apply: (s) => ({ ...s, extraShooters: Math.min(2, s.extraShooters + 1) }),
     },
     {
       id: 'piercing',
       name: 'Piercing Shots',
       description: 'Projectiles pierce balloons',
+      cost: 200,
       apply: (s) => ({ ...s, piercing: true }),
     },
     {
       id: 'explosive',
       name: 'Explosive Shots',
       description: 'Splash damage',
+      cost: 200,
       apply: (s) => ({ ...s, explosive: true }),
     },
     {
       id: 'health',
       name: 'Extra Health',
       description: '+20 max HP',
+      cost: 80,
       apply: (s) => s, // Health handled separately in scene
     },
   ];
+}
 
-  // Shuffle and return 3 random upgrades
+export function createUpgrades(): Upgrade[] {
+  const allUpgrades = getAllUpgrades();
   const shuffled = [...allUpgrades].sort(() => Math.random() - 0.5);
   return shuffled.slice(0, 3);
 }
 
 export function applyUpgrade(stats: OffensiveStats, upgradeId: string): OffensiveStats {
-  const upgrade = createUpgrades().find(u => u.id === upgradeId);
+  const upgrade = getAllUpgrades().find(u => u.id === upgradeId);
   return upgrade ? upgrade.apply(stats) : stats;
 }
 
