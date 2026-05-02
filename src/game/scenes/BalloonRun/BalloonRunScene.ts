@@ -10,7 +10,13 @@ import {
     startNextStage,
     restartGame,
     drainEvents,
+    spawnPowerUp,
+    collectPowerUp,
+    PowerUp,
+    Enemy,
 } from './index';
+import { SoundManager } from './sounds/SoundManager';
+import { ParticleManager } from './ParticleManager';
 
 const WORLD_W = 800;
 const WORLD_H = 600;
@@ -22,12 +28,15 @@ export class BalloonRunScene extends Phaser.Scene {
     private groundSprite!: Phaser.GameObjects.Rectangle;
     private enemySprites: Phaser.GameObjects.Circle[] = [];
     private projectileSprites: Phaser.GameObjects.Triangle[] = [];
+    private powerUpSprites: Phaser.GameObjects.Circle[] = [];
     private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
     private wasd!: { W: Phaser.Input.Keyboard.Key; A: Phaser.Input.Keyboard.Key; S: Phaser.Input.Keyboard.Key; D: Phaser.Input.Keyboard.Key };
     private onGameStateChange?: (state: GameState) => void;
     private onOffenseChange?: (offense: OffensiveStats) => void;
     private lastNotifiedState?: GameState;
     private flashTimer: number = 0;
+    private soundManager!: SoundManager;
+    private particleManager!: ParticleManager;
 
     constructor(onGameStateChange: (state: GameState) => void, onOffenseChange: (offense: OffensiveStats) => void) {
         super({ key: 'BalloonRunScene' });
@@ -42,6 +51,10 @@ export class BalloonRunScene extends Phaser.Scene {
     create() {
         this.gameState = createInitialState();
         this.offense = getBaseOffense();
+
+        // Initialize managers
+        this.soundManager = new SoundManager();
+        this.particleManager = new ParticleManager(this);
 
         // Background - sky gradient
         this.add.rectangle(WORLD_W / 2, WORLD_H / 4, WORLD_W, WORLD_H / 2, 0x87CEEB); // Light blue sky
@@ -80,6 +93,37 @@ export class BalloonRunScene extends Phaser.Scene {
         if (this.gameState.events.fx.includes('base_hit')) {
             this.flashTimer = 300; // Flash for 300ms
         }
+
+        // Handle sound effects
+        this.gameState.events.audio.forEach(audio => {
+            switch (audio) {
+                case 'shoot': this.soundManager.playShoot(); break;
+                case 'balloon_pop': this.soundManager.playBalloonPop(); break;
+                case 'explosion': this.soundManager.playExplosion(); break;
+                case 'base_hit': this.soundManager.playBaseHit(); break;
+                case 'upgrade': this.soundManager.playUpgrade(); break;
+                case 'game_over': this.soundManager.playGameOver(); break;
+                case 'stage_complete': this.soundManager.playStageComplete(); break;
+                case 'powerup': this.soundManager.playPowerUp(); break;
+            }
+        });
+
+        // Handle particle effects
+        this.gameState.events.fx.forEach(fx => {
+            switch (fx) {
+                case 'explosion':
+                    // Find exploding balloons and create effects
+                    this.gameState.enemies.forEach(enemy => {
+                        if (enemy.currentLayer <= 0) {
+                            this.particleManager.explodeAt(enemy.x, enemy.y, enemy.type.color);
+                        }
+                    });
+                    break;
+                case 'powerup_collected':
+                    // Power-up collection effects are handled in collectPowerUp
+                    break;
+            }
+        });
 
         // Update sprites
         this.updateSprites();
@@ -142,7 +186,19 @@ export class BalloonRunScene extends Phaser.Scene {
                         explosive: offense.explosive,
                     }];
                 }
+                // Add muzzle flash effect
+                this.particleManager.shootEffect(next.player.x + shooter.x, next.player.y);
             });
+            next.events.audio.push('shoot');
+        }
+
+        // Spawn power-ups occasionally
+        next.timers.powerUpSpawnMs += dt * 1000;
+        if (next.timers.powerUpSpawnMs > 15000 && Math.random() < 0.002) { // 15 second timer, 0.2% chance per frame
+            next.timers.powerUpSpawnMs = 0;
+            const powerUp = spawnPowerUp();
+            powerUp.id = next.ids.powerUp++;
+            next.powerUps = [...next.powerUps, powerUp];
         }
 
         // Update projectiles
@@ -178,6 +234,20 @@ export class BalloonRunScene extends Phaser.Scene {
             }
         });
         next.enemies = aliveEnemies;
+
+        // Power-up collision detection
+        next.powerUps.forEach((powerUp) => {
+            if (!powerUp.collected) {
+                const dx = powerUp.x - next.player.x;
+                const dy = powerUp.y - next.player.y;
+                if (Math.abs(dx) < 25 && Math.abs(dy) < 25) {
+                    this.particleManager.powerUpEffect(powerUp.x, powerUp.y);
+                    const result = collectPowerUp(next, powerUp.id, offense);
+                    next = result.state;
+                    offense = result.offense;
+                }
+            }
+        });
 
         // Check stage complete
         if (next.balloonsRemaining === 0 && next.enemies.length === 0) {
@@ -225,14 +295,17 @@ export class BalloonRunScene extends Phaser.Scene {
             const highlight = this.add.circle(0, 0, 6, 0xffffff, 0.3); // White highlight
             balloon.setData('string', string);
             balloon.setData('highlight', highlight);
+            balloon.setData('crown', null);
             this.enemySprites.push(balloon);
         }
         while (this.enemySprites.length > this.gameState.enemies.length) {
             const sprite = this.enemySprites.pop();
             const string = sprite?.getData('string') as Phaser.GameObjects.Rectangle;
             const highlight = sprite?.getData('highlight') as Phaser.GameObjects.Circle;
+            const crown = sprite?.getData('crown') as Phaser.GameObjects.Triangle;
             string?.destroy();
             highlight?.destroy();
+            crown?.destroy();
             sprite?.destroy();
         }
         this.enemySprites.forEach((sprite, i) => {
@@ -243,6 +316,22 @@ export class BalloonRunScene extends Phaser.Scene {
             sprite.setPosition(enemy.x, enemy.y);
             sprite.setFillStyle(enemy.type.color);
             sprite.setRadius(currentSize);
+
+            // Special effects for different balloon types
+            if (enemy.type.special === 'boss') {
+                // Boss balloons have a crown
+                const crown = sprite.getData('crown') as Phaser.GameObjects.Triangle;
+                if (!crown) {
+                    const newCrown = this.add.triangle(enemy.x, enemy.y - currentSize - 5, 0, -5, -5, 5, 5, 5, 0xffd700);
+                    sprite.setData('crown', newCrown);
+                } else {
+                    crown.setPosition(enemy.x, enemy.y - currentSize - 5);
+                    crown.setVisible(true);
+                }
+            } else {
+                const crown = sprite.getData('crown') as Phaser.GameObjects.Triangle;
+                crown?.setVisible(false);
+            }
 
             // Update string position
             const string = sprite.getData('string') as Phaser.GameObjects.Rectangle;
@@ -273,6 +362,42 @@ export class BalloonRunScene extends Phaser.Scene {
             sprite.setPosition(proj.x, proj.y);
             // Rotate to face upward
             sprite.setRotation(Math.PI);
+        });
+
+        // Update power-ups
+        while (this.powerUpSprites.length < this.gameState.powerUps.length) {
+            const powerUpSprite = this.add.circle(0, 0, 10, 0xffffff);
+            this.powerUpSprites.push(powerUpSprite);
+        }
+        while (this.powerUpSprites.length > this.gameState.powerUps.length) {
+            const sprite = this.powerUpSprites.pop();
+            sprite?.destroy();
+        }
+        this.powerUpSprites.forEach((sprite, i) => {
+            const powerUp = this.gameState.powerUps[i];
+            sprite.setPosition(powerUp.x, powerUp.y);
+
+            // Set appearance based on type
+            switch (powerUp.type) {
+                case 'health':
+                    sprite.setFillStyle(0xff0000);
+                    break;
+                case 'damage':
+                    sprite.setFillStyle(0xffff00);
+                    break;
+                case 'speed':
+                    sprite.setFillStyle(0x00ff00);
+                    break;
+                case 'multishot':
+                    sprite.setFillStyle(0x0000ff);
+                    break;
+            }
+
+            // Simple animation - pulsing
+            const scale = 0.8 + Math.sin(this.time.now * 0.01 + i) * 0.2;
+            sprite.setScale(scale);
+
+            sprite.setVisible(!powerUp.collected);
         });
     }
 

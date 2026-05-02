@@ -1,8 +1,9 @@
 {
   "name": "balloon-run",
   "private": true,
-  "version": "0.1.0",
-  "type": "module",
+  "version": "2.0.0",
+  "description": "Balloon Defense 2.0 - A thrilling tower defense game with special enemies, power-ups, and epic effects",
+  "keywords": ["game", "phaser", "react", "typescript", "tower-defense", "balloon"],
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
@@ -25,6 +26,6 @@
     "eslint-plugin-react-hooks": "^5.1.0",
     "eslint-plugin-react-refresh": "^0.4.14",
     "typescript": "^5.6.3",
-    "vite": "^8.0.10"
+    "vite": "^5.4.10",
   }
 }

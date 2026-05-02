@@ -1,10 +1,19 @@
 export type Vec2 = { x: number; y: number };
 
 export type BalloonType = {
-  layers: number; // 1-3 layers
+  layers: number; // 1-5 layers
   speed: number;
   color: number; // Phaser color
   points: number;
+  special?: 'boss' | 'armored' | 'fast' | 'explosive';
+};
+
+export type PowerUp = {
+  id: number;
+  x: number;
+  y: number;
+  type: 'health' | 'damage' | 'speed' | 'multishot';
+  collected: boolean;
 };
 
 export type Enemy = {
@@ -55,6 +64,7 @@ export type GameState = {
   pendingUpgrades: Upgrade[] | null;
   enemies: Enemy[];
   projectiles: Projectile[];
+  powerUps: PowerUp[];
   input: {
     left: boolean;
     right: boolean;
@@ -64,6 +74,7 @@ export type GameState = {
   timers: {
     enemySpawnMs: number;
     fireCooldownMs: number;
+    powerUpSpawnMs: number;
   };
   events: {
     audio: string[];
@@ -72,6 +83,7 @@ export type GameState = {
   ids: {
     enemy: number;
     projectile: number;
+    powerUp: number;
   };
 };
 
@@ -84,6 +96,11 @@ export const BALLOON_TYPES: BalloonType[] = [
   { layers: 3, speed: 30, color: 0x0000ff, points: 30 }, // Blue
   { layers: 1, speed: 80, color: 0xffff00, points: 15 }, // Yellow fast
   { layers: 4, speed: 25, color: 0xff00ff, points: 50 }, // Magenta tough
+  // New 2.0 types
+  { layers: 5, speed: 20, color: 0x8B4513, points: 100, special: 'boss' }, // Brown boss
+  { layers: 2, speed: 60, color: 0xFFA500, points: 25, special: 'fast' }, // Orange fast
+  { layers: 3, speed: 35, color: 0x800080, points: 40, special: 'armored' }, // Purple armored
+  { layers: 2, speed: 45, color: 0xFF1493, points: 35, special: 'explosive' }, // Pink explosive
 ];
 
 export function createInitialState(): GameState {
@@ -97,15 +114,16 @@ export function createInitialState(): GameState {
     pendingUpgrades: null,
     enemies: [],
     projectiles: [],
+    powerUps: [],
     input: {
       left: false,
       right: false,
       firing: true,
       touchDirection: { x: 0, y: 0 },
     },
-    timers: { enemySpawnMs: 0, fireCooldownMs: 0 },
+    timers: { enemySpawnMs: 0, fireCooldownMs: 0, powerUpSpawnMs: 0 },
     events: { audio: [], fx: [] },
-    ids: { enemy: 1, projectile: 1 },
+    ids: { enemy: 1, projectile: 1, powerUp: 1 },
   };
 }
 
@@ -141,6 +159,50 @@ export function spawnBalloon(stage: number): Enemy {
     currentLayer: type.layers,
     speed: type.speed + (stage - 1) * 3, // More gradual speed increase: +3 per stage instead of +5
   };
+}
+
+export function spawnPowerUp(): PowerUp {
+  const types: PowerUp['type'][] = ['health', 'damage', 'speed', 'multishot'];
+  const type = types[Math.floor(Math.random() * types.length)];
+  return {
+    id: 0, // Set later
+    x: Math.random() * (WORLD_W - 40) + 20,
+    y: Math.random() * (WORLD_H - 200) + 100,
+    type,
+    collected: false,
+  };
+}
+
+export function collectPowerUp(state: GameState, powerUpId: number, offense: OffensiveStats): { state: GameState; offense: OffensiveStats } {
+  const powerUp = state.powerUps.find(p => p.id === powerUpId);
+  if (!powerUp || powerUp.collected) return { state, offense };
+
+  let newState = { ...state };
+  let newOffense = { ...offense };
+
+  switch (powerUp.type) {
+    case 'health':
+      newState.player.hp = Math.min(newState.player.maxHp, newState.player.hp + 30);
+      break;
+    case 'damage':
+      newOffense.projectileDamage += 1;
+      break;
+    case 'speed':
+      newOffense.projectileSpeed += 50;
+      break;
+    case 'multishot':
+      newOffense.multiShot = Math.min(5, newOffense.multiShot + 1);
+      break;
+  }
+
+  newState.powerUps = newState.powerUps.map(p =>
+    p.id === powerUpId ? { ...p, collected: true } : p
+  );
+
+  newState.events.fx.push('powerup_collected');
+  newState.events.audio.push('powerup');
+
+  return { state: newState, offense: newOffense };
 }
 
 export function createUpgrades(): Upgrade[] {
@@ -209,7 +271,8 @@ export function startNextStage(state: GameState): GameState {
     pendingUpgrades: null,
     enemies: [],
     projectiles: [],
-    timers: { enemySpawnMs: 0, fireCooldownMs: 0 },
+    powerUps: [],
+    timers: { enemySpawnMs: 0, fireCooldownMs: 0, powerUpSpawnMs: 0 },
   };
 }
 

@@ -73,9 +73,9 @@ export default function BalloonRunPage() {
       alignItems: 'center',
       padding: '20px'
     }}>
-      <h1 style={{ margin: '0 0 10px 0', color: '#2c3e50', textAlign: 'center' }}>Balloon Defense</h1>
+      <h1 style={{ margin: '0 0 10px 0', color: '#2c3e50', textAlign: 'center' }}>Balloon Defense 2.0</h1>
       <p style={{ margin: '0 0 20px 0', color: '#34495e', textAlign: 'center', fontSize: '14px' }}>
-        Defend against balloon waves! Move with A/D or arrow keys. Auto-fire upward.
+        Defend against balloon waves with new enemies, power-ups, and epic effects! Move with A/D or arrow keys. Collect power-ups for bonuses.
       </p>
 
       {/* HUD */}
@@ -101,6 +101,7 @@ export default function BalloonRunPage() {
         <div>Fire Rate: <span style={{ color: '#3498db' }}>{(1000 / offense.fireRateMs).toFixed(1)}/s</span></div>
         <div>Shots: <span style={{ color: '#e67e22' }}>{offense.multiShot}</span></div>
         <div>Shooters: <span style={{ color: '#16a085' }}>{1 + offense.extraShooters}</span></div>
+        <div>Power-ups: <span style={{ color: '#9b59b6' }}>{state.powerUps.filter(p => !p.collected).length}</span></div>
         {offense.piercing && <div style={{ color: '#8e44ad' }}>🔥 Piercing</div>}
         {offense.explosive && <div style={{ color: '#d35400' }}>💥 Explosive</div>}
       </div>
